@@ -1,0 +1,13 @@
+notebook
+pandas
+numpy
+seaborn
+matplotlib
+nltk
+wordcloud
+scikit-learn
+transformers
+torch
+tqdm
+streamlit
+streamlit
