@@ -1,0 +1,12 @@
+Accuracy: 0.2092
+F1-macro: 0.1550
+
+              precision    recall  f1-score   support
+
+ Ineffective     0.2076    0.8792    0.3359      1341
+    Adequate     0.2363    0.0861    0.1262      4147
+   Effective     0.0181    0.0016    0.0030      1867
+
+    accuracy                         0.2092      7355
+   macro avg     0.1540    0.3223    0.1550      7355
+weighted avg     0.1757    0.2092    0.1332      7355
