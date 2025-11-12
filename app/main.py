@@ -9,3 +9,5 @@ st.markdown(
 
 if st.button("Hello world"):
     st.balloons()
+
+st.text_area(label="Argument", placeholder="Write your argument...")
