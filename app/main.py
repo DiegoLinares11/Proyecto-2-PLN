@@ -1,5 +1,7 @@
 import torch
 import streamlit as st
+import plotly.express as px
+import pandas as pd
 import load_models as lm
 
 #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
