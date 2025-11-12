@@ -1,6 +1,7 @@
 import torch
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.svm import LinearSVC
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from transformers import DistilBertForSequenceClassification, AutoModelForSequenceClassification, DebertaV2Tokenizer, DistilBertTokenizerFast
 import joblib
 import pandas as pd
@@ -85,3 +86,48 @@ def predict_deberta(argument, device, model):
     predicted_label = label_encoder.inverse_transform([predicted_class])[0]
 
     return predicted_label
+
+def evaluate_models(device, distilbert_model, deberta_model, svm_model, tfidf_vectorizer):
+    test_dataset = pd.read_csv("../data/clean_test.csv")
+
+    X_test = test_dataset["discourse_text_clean"]
+    y_true = test_dataset["label"]
+
+    results = {
+        "Model": [],
+        "Accuracy": [],
+        "Precision": [],
+        "Recall": [],
+        "F1-Score": []
+    }
+
+    # Evaluate DistilBERT
+    from load_models import predict_distilbert
+    y_pred = [predict_distilbert(text, device, distilbert_model) for text in X_test]
+    results["Model"].append("DistilBERT")
+    results["Accuracy"].append(accuracy_score(y_true, y_pred))
+    results["Precision"].append(precision_score(y_true, y_pred, average="macro"))
+    results["Recall"].append(recall_score(y_true, y_pred, average="macro"))
+    results["F1-Score"].append(f1_score(y_true, y_pred, average="macro"))
+
+    # Evaluate DeBERTa
+    from load_models import predict_deberta
+    y_pred = [predict_deberta(text, device, deberta_model) for text in X_test]
+    results["Model"].append("DeBERTa")
+    results["Accuracy"].append(accuracy_score(y_true, y_pred))
+    results["Precision"].append(precision_score(y_true, y_pred, average="macro"))
+    results["Recall"].append(recall_score(y_true, y_pred, average="macro"))
+    results["F1-Score"].append(f1_score(y_true, y_pred, average="macro"))
+
+    # Evaluate SVM
+    from load_models import predict_svm
+    y_pred = [predict_svm(text, svm_model, tfidf_vectorizer)[0] for text in X_test]
+    results["Model"].append("SVM + TF-IDF")
+    results["Accuracy"].append(accuracy_score(y_true, y_pred))
+    results["Precision"].append(precision_score(y_true, y_pred, average="macro"))
+    results["Recall"].append(recall_score(y_true, y_pred, average="macro"))
+    results["F1-Score"].append(f1_score(y_true, y_pred, average="macro"))
+
+    df = pd.DataFrame(results)
+    return df
+

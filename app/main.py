@@ -64,13 +64,8 @@ show_performance = st.checkbox("Show model performance on test data")
 if show_performance:
     st.subheader("Model Performance Comparison")
 
-    performance_data = pd.DataFrame({
-        "Model": ["DistilBERT", "DeBERTa", "SVM + TF-IDF"],
-        "Accuracy": [0.86, 0.89, 0.75],
-        "F1-Score": [0.84, 0.88, 0.73],
-        "Precision": [0.85, 0.87, 0.72],
-        "Recall": [0.83, 0.88, 0.74]
-    })
+    with st.spinner("Evaluating models on test set... (this might take a minute)"):
+        performance_data = lm.evaluate_models(device, distilbert_model, deberta_model, svm_model, tfidf_vectorizer)
 
     fig = px.bar(
         performance_data.melt(id_vars=["Model"], var_name="Metric", value_name="Score"),
