@@ -2,10 +2,8 @@ import torch
 from transformers import DistilBertForSequenceClassification, AutoModelForSequenceClassification, DebertaV2Tokenizer, DistilBertTokenizerFast
 import joblib
 
-def load_distilbert():
+def load_distilbert(device):
     MODEL_NAME = "distilbert-base-uncased"
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
     num_labels = 3
 
     model = DistilBertForSequenceClassification.from_pretrained(
@@ -19,7 +17,7 @@ def load_distilbert():
 
     return model
 
-def predict_distilbert(argument, model_name, device, model):
+def predict_distilbert(argument, device, model, model_name="distilbert-base-uncased"):
     tokenizer = DistilBertTokenizerFast.from_pretrained(model_name)
 
     inputs = tokenizer(argument, return_tensors="pt", truncation=True, padding=True, max_length=128).to(device)
@@ -31,10 +29,9 @@ def predict_distilbert(argument, model_name, device, model):
 
     return predicted_class
 
-def load_deberta():
+def load_deberta(device):
     model = AutoModelForSequenceClassification.from_pretrained("./models/deberta_model")
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
     model.eval()
 
