@@ -10,4 +10,5 @@ transformers
 torch
 tqdm
 streamlit
-streamlit
+tiktoken
+SentencePiece
