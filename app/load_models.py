@@ -45,7 +45,7 @@ def load_distilbert(device):
         num_labels=num_labels
     )
 
-    model.load_state_dict(torch.load("./models/distilbert_trained.pt", map_location=device))            
+    model.load_state_dict(torch.load("../models/distilbert_trained.pt", map_location=device))            
     model.to(device)
     model.eval()
 
@@ -65,7 +65,7 @@ def predict_distilbert(argument, device, model, model_name="distilbert-base-unca
 
 # DeBERTa
 def load_deberta(device):
-    model = AutoModelForSequenceClassification.from_pretrained("./models/deberta_model")
+    model = AutoModelForSequenceClassification.from_pretrained("../models/deberta_model")
 
     model.to(device)
     model.eval()
@@ -73,9 +73,9 @@ def load_deberta(device):
     return model
 
 def predict_deberta(argument, device, model):
-    tokenizer = DebertaV2Tokenizer.from_pretrained("./models/deberta_model")
+    tokenizer = DebertaV2Tokenizer.from_pretrained("../models/deberta_model")
 
-    label_encoder = joblib.load("./models/deberta_model/label_encoder.pkl")
+    label_encoder = joblib.load("../models/deberta_model/label_encoder.pkl")
 
     inputs = tokenizer(argument, return_tensors="pt", truncation=True, padding=True, max_length=128).to(device)
 
