@@ -27,7 +27,7 @@ from sklearn.metrics import (
 )
 
 # -------------------------
-# Rutas (adaptadas a tu repo)
+# Rutas
 # -------------------------
 ROOT = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else os.getcwd()
 MODEL_PATH = os.path.join(ROOT, "distilbert_trained.pt")
