@@ -258,13 +258,11 @@ st.markdown(f"""
 # Device setup
 device = "cpu"
 
-def evaluate_models_safe(device, distilbert_model, deberta_model, svm_model, tfidf_vectorizer, use_train=False):
-    """Versión segura de evaluate_models que maneja diferentes nombres de columnas"""
+def evaluate_models_safe(device, distilbert_model, deberta_model, svm_model, tfidf_vectorizer, use_train=False, sample_size=100):
+    """Versión segura con muestreo y progreso visible"""
     
     if use_train:
-        # Usar train set con split
         from sklearn.model_selection import train_test_split
-        
         full_dataset = pd.read_csv("../data/clean_train.csv")
         
         # Detectar columna de texto
@@ -280,7 +278,6 @@ def evaluate_models_safe(device, distilbert_model, deberta_model, svm_model, tfi
             st.error("No se pudo preparar el dataset para evaluación")
             return None
         
-        # Split 80/20
         _, test_subset = train_test_split(
             full_dataset, 
             test_size=0.2, 
@@ -288,16 +285,18 @@ def evaluate_models_safe(device, distilbert_model, deberta_model, svm_model, tfi
             stratify=full_dataset['label']
         )
         
+        # SAMPLE SUBSET TO REDUCE TIME
+        if len(test_subset) > sample_size:
+            test_subset = test_subset.sample(n=sample_size, random_state=42)
+        
         X_test = test_subset[text_col]
         y_true = test_subset['label']
         
-        st.info(f"Evaluando con {len(test_subset)} muestras del train set (20% para validación)")
+        st.info(f"✅ Evaluando con {len(test_subset)} muestras del train set (20% para validación)")
         
     else:
-        # Usar test set normal
         test_dataset = pd.read_csv("../data/clean_test.csv")
         
-        # Detectar columna de texto
         if 'discourse_text_clean' in test_dataset.columns:
             text_col = 'discourse_text_clean'
         elif 'discourse_text' in test_dataset.columns:
@@ -310,13 +309,27 @@ def evaluate_models_safe(device, distilbert_model, deberta_model, svm_model, tfi
                 st.error("No se encontró columna de texto en test dataset")
                 return None
         
-        # Verificar que exista la columna de labels
         if 'label' not in test_dataset.columns:
-            st.error("El dataset de prueba no tiene la columna 'label'. No se puede evaluar el rendimiento.")
+            st.error("El dataset de prueba no tiene la columna 'label'.")
             return None
+        
+        # SAMPLE SUBSET TO REDUCE TIME
+        if len(test_dataset) > sample_size:
+            test_dataset = test_dataset.sample(n=sample_size, random_state=42)
         
         X_test = test_dataset[text_col]
         y_true = test_dataset["label"]
+        
+        st.info(f"✅ Evaluando con {len(test_dataset)} muestras del test set")
+    
+    # Define label mappings
+    label_map = {0: 'Ineffective', 1: 'Adequate', 2: 'Effective'}
+    
+    # Convert y_true to string labels if they're numeric
+    if y_true.dtype in ['int64', 'int32', 'float64']:
+        y_true_mapped = y_true.map(label_map)
+    else:
+        y_true_mapped = y_true
     
     results = {
         "Model": [],
@@ -326,35 +339,72 @@ def evaluate_models_safe(device, distilbert_model, deberta_model, svm_model, tfi
         "F1-Score": []
     }
     
+    # Progress bar
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
     # Evaluate DistilBERT
-    st.write("Evaluando DistilBERT...")
-    y_pred = [lm.predict_distilbert(text, device, distilbert_model) for text in X_test]
+    status_text.text("🔄 Evaluando DistilBERT...")
+    y_pred = []
+    for i, text in enumerate(X_test):
+        pred = lm.predict_distilbert(text, device, distilbert_model)
+        y_pred.append(pred)
+        if i % 10 == 0:
+            progress_bar.progress((i / len(X_test)) * 0.33)
+    
+    # Convert numeric predictions to string labels
+    y_pred_mapped = [label_map[p] for p in y_pred]
+    
     results["Model"].append("DistilBERT")
-    results["Accuracy"].append(accuracy_score(y_true, y_pred))
-    results["Precision"].append(precision_score(y_true, y_pred, average="macro"))
-    results["Recall"].append(recall_score(y_true, y_pred, average="macro"))
-    results["F1-Score"].append(f1_score(y_true, y_pred, average="macro"))
+    results["Accuracy"].append(accuracy_score(y_true_mapped, y_pred_mapped))
+    results["Precision"].append(precision_score(y_true_mapped, y_pred_mapped, average="macro"))
+    results["Recall"].append(recall_score(y_true_mapped, y_pred_mapped, average="macro"))
+    results["F1-Score"].append(f1_score(y_true_mapped, y_pred_mapped, average="macro"))
     
     # Evaluate DeBERTa
-    st.write("Evaluando DeBERTa...")
-    y_pred = [lm.predict_deberta(text, device, deberta_model) for text in X_test]
+    status_text.text("🔄 Evaluando DeBERTa...")
+    y_pred = []
+    for i, text in enumerate(X_test):
+        pred = lm.predict_deberta(text, device, deberta_model)
+        y_pred.append(pred)
+        if i % 10 == 0:
+            progress_bar.progress(0.33 + (i / len(X_test)) * 0.33)
+    
+    # DeBERTa already returns string labels
+    y_pred_mapped = y_pred
+    
     results["Model"].append("DeBERTa")
-    results["Accuracy"].append(accuracy_score(y_true, y_pred))
-    results["Precision"].append(precision_score(y_true, y_pred, average="macro"))
-    results["Recall"].append(recall_score(y_true, y_pred, average="macro"))
-    results["F1-Score"].append(f1_score(y_true, y_pred, average="macro"))
+    results["Accuracy"].append(accuracy_score(y_true_mapped, y_pred_mapped))
+    results["Precision"].append(precision_score(y_true_mapped, y_pred_mapped, average="macro"))
+    results["Recall"].append(recall_score(y_true_mapped, y_pred_mapped, average="macro"))
+    results["F1-Score"].append(f1_score(y_true_mapped, y_pred_mapped, average="macro"))
     
     # Evaluate SVM
-    st.write("Evaluando SVM + TF-IDF...")
-    y_pred = [lm.predict_svm(text, svm_model, tfidf_vectorizer) for text in X_test]
-    label_map = {0: 'Ineffective', 1: 'Adequate', 2: 'Effective'}
-    y_pred_mapped = [label_map[p] if isinstance(p, int) else p for p in y_pred]
-    y_true_mapped = [label_map[y] if isinstance(y, int) else y for y in y_true]
+    status_text.text("🔄 Evaluando SVM + TF-IDF...")
+    y_pred = []
+    for i, text in enumerate(X_test):
+        pred = lm.predict_svm(text, svm_model, tfidf_vectorizer)
+        y_pred.append(pred)
+        if i % 10 == 0:
+            progress_bar.progress(0.66 + (i / len(X_test)) * 0.34)
+    
+    # Convert numeric predictions to string labels - handle numpy integers
+    y_pred_mapped = []
+    for p in y_pred:
+        if isinstance(p, str):
+            y_pred_mapped.append(p)
+        else:
+            # Convert to Python int to handle numpy types
+            y_pred_mapped.append(label_map[int(p)])
+    
     results["Model"].append("SVM + TF-IDF")
     results["Accuracy"].append(accuracy_score(y_true_mapped, y_pred_mapped))
     results["Precision"].append(precision_score(y_true_mapped, y_pred_mapped, average="macro"))
     results["Recall"].append(recall_score(y_true_mapped, y_pred_mapped, average="macro"))
     results["F1-Score"].append(f1_score(y_true_mapped, y_pred_mapped, average="macro"))
+    
+    progress_bar.progress(1.0)
+    status_text.text("✅ Evaluación completada!")
     
     df = pd.DataFrame(results)
     return df
@@ -363,7 +413,7 @@ def evaluate_models_safe(device, distilbert_model, deberta_model, svm_model, tfi
 @st.cache_resource
 def load_all_models():
     """Carga todos los modelos una sola vez"""
-    with st.spinner(" Cargando modelos..."):
+    with st.spinner("⏳ Cargando modelos..."):
         distilbert = lm.load_distilbert(device)
         deberta = lm.load_deberta(device)
         svm, tfidf = lm.load_svm()
@@ -377,7 +427,7 @@ def load_datasets():
         train_df = pd.read_csv("../data/clean_train.csv")
         test_df = pd.read_csv("../data/clean_test.csv")
     except FileNotFoundError:
-        st.error(" No se encontraron los archivos de datos. Verifica que estén en ../data/")
+        st.error("❌ No se encontraron los archivos de datos. Verifica que estén en ../data/")
         st.stop()
     
     # Identificar columna de texto en TRAIN
@@ -390,7 +440,7 @@ def load_datasets():
         if train_text_cols:
             train_text_col = train_text_cols[0]
         else:
-            st.error(f" No se encontró columna de texto en train. Columnas: {train_df.columns.tolist()}")
+            st.error(f"❌ No se encontró columna de texto en train. Columnas: {train_df.columns.tolist()}")
             st.stop()
     
     # Identificar columna de texto en TEST
@@ -405,7 +455,7 @@ def load_datasets():
         else:
             test_text_col = None  # Test puede no tener texto
     
-    st.sidebar.info(f" Train: `{train_text_col}`\n\n Test: `{test_text_col if test_text_col else 'N/A'}`")
+    st.sidebar.info(f"📝 Train: `{train_text_col}`\n\n📝 Test: `{test_text_col if test_text_col else 'N/A'}`")
     
     # Mapeo de labels
     label_map = {0: 'Ineffective', 1: 'Adequate', 2: 'Effective'}
@@ -413,7 +463,7 @@ def load_datasets():
     if 'label' in train_df.columns:
         train_df['label_name'] = train_df['label'].map(label_map)
     else:
-        st.error(" No se encontró la columna 'label' en el dataset de entrenamiento")
+        st.error("❌ No se encontró la columna 'label' en el dataset de entrenamiento")
         st.stop()
     
     # Solo mapear label_name si existe la columna 'label' en test
@@ -446,7 +496,7 @@ with st.sidebar:
     st.markdown("---")
     
     # Información del modelo
-    with st.expander("Información"):
+    with st.expander("ℹ️ Información"):
         st.markdown("""
         **Modelos disponibles:**
         - DistilBERT
@@ -463,7 +513,7 @@ with st.sidebar:
 distilbert_model, deberta_model, svm_model, tfidf_vectorizer = load_all_models()
 train_df, test_df, text_col = load_datasets()
 
-st.sidebar.success("Modelos cargados correctamente")
+st.sidebar.success("✅ Modelos cargados correctamente")
 
 # ==================== PÁGINA: INICIO ====================
 if page == "🏠 Inicio":
@@ -504,7 +554,7 @@ if page == "🏠 Inicio":
     
     st.markdown("""
     <div class="info-box">
-        <h3> Sobre el Proyecto</h3>
+        <h3>ℹ️ Sobre el Proyecto</h3>
         <p>
         Esta aplicación utiliza técnicas de <strong>Procesamiento de Lenguaje Natural (NLP)</strong> 
         para clasificar argumentos en tres categorías: <strong>Effective</strong>, <strong>Adequate</strong>, 
@@ -517,13 +567,13 @@ if page == "🏠 Inicio":
     </div>
     """, unsafe_allow_html=True)
     
-    st.markdown("###  Funcionalidades")
+    st.markdown("### ✨ Funcionalidades")
     
     col1, col2 = st.columns(2)
     
     with col1:
         st.markdown("""
-        ** Exploración de Datos**
+        **📊 Exploración de Datos**
         - Visualización de distribución de clases
         - Análisis de longitud de textos
         - Word clouds interactivos
@@ -532,7 +582,7 @@ if page == "🏠 Inicio":
     
     with col2:
         st.markdown("""
-        ** Clasificación Inteligente**
+        **🤖 Clasificación Inteligente**
         - Clasificación con 3 modelos diferentes
         - Comparación de predicciones
         - Análisis de rendimiento
@@ -541,7 +591,7 @@ if page == "🏠 Inicio":
 
 # ==================== PÁGINA: EXPLORACIÓN DE DATOS ====================
 elif page == "📊 Exploración de Datos":
-    st.title(" Exploración de Datos")
+    st.title("📊 Exploración de Datos")
     st.markdown("Analiza las características y distribución del conjunto de datos de entrenamiento")
     
     # Tabs para organizar las visualizaciones
@@ -580,7 +630,7 @@ elif page == "📊 Exploración de Datos":
             st.plotly_chart(fig, use_container_width=True)
         
         with col2:
-            st.markdown("###  Resumen")
+            st.markdown("### 📊 Resumen")
             for label, count in class_counts.itertuples(index=False):
                 percentage = (count / len(train_df)) * 100
                 st.metric(
@@ -698,7 +748,7 @@ elif page == "📊 Exploración de Datos":
         st.plotly_chart(fig_hist, use_container_width=True)
         
         # Estadísticas por clase
-        st.subheader(f" Estadísticas de {metric_label} por Clase")
+        st.subheader(f"📊 Estadísticas de {metric_label} por Clase")
         stats_df = train_df.groupby('label_name')[metric_col].describe().round(2)
         st.dataframe(stats_df, use_container_width=True)
     
@@ -734,7 +784,7 @@ elif page == "📊 Exploración de Datos":
         st.pyplot(fig)
         
         # Mostrar top palabras
-        st.subheader(f" Top 20 Palabras en {class_selector}")
+        st.subheader(f"📊 Top 20 Palabras en {class_selector}")
         
         from collections import Counter
         words = all_text.lower().split()
@@ -759,14 +809,14 @@ elif page == "📊 Exploración de Datos":
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown("###  Dataset de Entrenamiento")
+            st.markdown("### 📚 Dataset de Entrenamiento")
             st.metric("Total de argumentos", len(train_df))
             st.metric("Tipos de discurso únicos", train_df['discourse_type'].nunique())
             st.metric("Promedio de caracteres", f"{train_df['text_length'].mean():.0f}")
             st.metric("Promedio de palabras", f"{train_df['word_count'].mean():.0f}")
         
         with col2:
-            st.markdown("###  Dataset de Prueba")
+            st.markdown("### 📝 Dataset de Prueba")
             st.metric("Total de argumentos", len(test_df))
             st.metric("Tipos de discurso únicos", test_df['discourse_type'].nunique() if 'discourse_type' in test_df.columns else "N/A")
             
@@ -779,7 +829,7 @@ elif page == "📊 Exploración de Datos":
         st.markdown("---")
         
         # Tabla de estadísticas completa
-        st.subheader(" Estadísticas Detalladas - Training Set")
+        st.subheader("📋 Estadísticas Detalladas - Training Set")
         
         stats_summary = pd.DataFrame({
             'Métrica': ['Total', 'Effective', 'Adequate', 'Ineffective'],
@@ -803,14 +853,14 @@ elif page == "📊 Exploración de Datos":
         st.dataframe(stats_summary, use_container_width=True, hide_index=True)
         
         # Análisis de texto solo con train
-        st.subheader(" Análisis de Longitud de Texto (Training)")
+        st.subheader("📏 Análisis de Longitud de Texto (Training)")
         
         text_stats = train_df.groupby('label_name')[['text_length', 'word_count']].describe().round(2)
         st.dataframe(text_stats, use_container_width=True)
 
 # ==================== PÁGINA: CLASIFICADOR ====================
 elif page == "🤖 Clasificador":
-    st.title(" Clasificador de Argumentos")
+    st.title("🤖 Clasificador de Argumentos")
     st.markdown("Clasifica nuevos argumentos usando los modelos entrenados")
     
     # Selector de modelo
@@ -825,7 +875,7 @@ elif page == "🤖 Clasificador":
     
     with col2:
         st.markdown("<br>", unsafe_allow_html=True)
-        show_info = st.checkbox(" Mostrar info", value=False)
+        show_info = st.checkbox("ℹ️ Mostrar info", value=False)
     
     if show_info:
         st.info("""
@@ -838,7 +888,7 @@ elif page == "🤖 Clasificador":
     
     # Área de texto para el argumento
     argument = st.text_area(
-        label=" Escribe tu argumento aquí:",
+        label="✍️ Escribe tu argumento aquí:",
         placeholder="Ejemplo: Students should be required to study abroad because it broadens their cultural perspectives and helps them develop independence...",
         key="argument_text",
         height=200,
@@ -857,9 +907,9 @@ elif page == "🤖 Clasificador":
     
     if classify_btn:
         if argument.strip() == "":
-            st.warning(" Por favor escribe un argumento antes de clasificar.")
+            st.warning("⚠️ Por favor escribe un argumento antes de clasificar.")
         else:
-            with st.spinner(" Clasificando tu argumento..."):
+            with st.spinner("🔄 Clasificando tu argumento..."):
                 results = {}
                 
                 # Realizar predicciones según el modelo seleccionado
@@ -875,16 +925,16 @@ elif page == "🤖 Clasificador":
                 if model_choice in ["SVM + TF-IDF", "Todos los Modelos"]:
                     pred = lm.predict_svm(argument, svm_model, tfidf_vectorizer)
                     label_map = {0: 'Ineffective', 1: 'Adequate', 2: 'Effective'}
-                    results["SVM + TF-IDF"] = label_map[pred]
+                    results["SVM + TF-IDF"] = label_map[int(pred)]
                 
                 # Guardar en session state
                 st.session_state["last_prediction"] = results
                 st.session_state["last_argument"] = argument
             
-            st.success(" Clasificación completada!")
+            st.success("✅ Clasificación completada!")
             
             st.markdown("---")
-            st.subheader(" Resultados de la Clasificación")
+            st.subheader("📊 Resultados de la Clasificación")
             
             # Mostrar resultados en columnas
             if len(results) == 1:
@@ -943,16 +993,16 @@ elif page == "🤖 Clasificador":
                 predictions_list = list(results.values())
                 
                 if len(set(predictions_list)) == 1:
-                    st.success(f" **Consenso total**: Todos los modelos coinciden en que el argumento es **{predictions_list[0]}**")
+                    st.success(f"✅ **Consenso total**: Todos los modelos coinciden en que el argumento es **{predictions_list[0]}**")
                 else:
                     from collections import Counter
                     most_common = Counter(predictions_list).most_common(1)[0]
-                    st.info(f" **Predicción mayoritaria**: **{most_common[0]}** ({most_common[1]}/{len(predictions_list)} modelos)")
+                    st.info(f"ℹ️ **Predicción mayoritaria**: **{most_common[0]}** ({most_common[1]}/{len(predictions_list)} modelos)")
     
     # Mostrar últimas predicciones
     if "last_prediction" in st.session_state:
         st.markdown("---")
-        st.subheader(" Última Clasificación")
+        st.subheader("🕒 Última Clasificación")
         
         with st.expander("Ver argumento clasificado"):
             st.markdown(f"**Texto:** {st.session_state['last_argument']}")
@@ -962,7 +1012,7 @@ elif page == "🤖 Clasificador":
 
 # ==================== PÁGINA: RENDIMIENTO ====================
 elif page == "📈 Rendimiento de Modelos":
-    st.title(" Rendimiento de Modelos")
+    st.title("📈 Rendimiento de Modelos")
     st.markdown("Compara el desempeño de los modelos en el conjunto de datos de prueba")
     
     # Verificar si el dataset de prueba tiene labels
@@ -970,7 +1020,7 @@ elif page == "📈 Rendimiento de Modelos":
     
     if not has_labels:
         st.info("""
-         **El dataset de prueba no contiene labels**
+        ℹ️ **El dataset de prueba no contiene labels**
         
         Para evaluar el rendimiento, usaremos una **validación cruzada** sobre el dataset de entrenamiento.
         Esto es una práctica estándar en Machine Learning cuando no tienes un test set con labels.
@@ -986,11 +1036,23 @@ elif page == "📈 Rendimiento de Modelos":
         eval_df = test_df.copy()
         use_train_for_eval = False
     
-    # Botón para calcular rendimiento
-    col1, col2, col3 = st.columns([1, 2, 1])
+    # Selector de tamaño de muestra
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        sample_size = st.slider(
+            "📊 Número de muestras para evaluar",
+            min_value=50,
+            max_value=500,
+            value=100,
+            step=50,
+            help="Menos muestras = más rápido, pero menos preciso"
+        )
+    
     with col2:
+        st.markdown("<br>", unsafe_allow_html=True)
         calc_performance = st.button(
-            " Calcular Rendimiento en Test Set",
+            "🚀 Calcular Rendimiento",
             use_container_width=True,
             type="primary"
         )
@@ -998,32 +1060,32 @@ elif page == "📈 Rendimiento de Modelos":
     if calc_performance or "performance_data" in st.session_state:
         
         if calc_performance:
-            with st.spinner(" Evaluando modelos en el conjunto de prueba... (esto puede tomar un minuto)"):
+            with st.spinner("🔄 Evaluando modelos... (esto puede tomar un minuto)"):
                 performance_data = evaluate_models_safe(
                     device, 
                     distilbert_model, 
                     deberta_model, 
                     svm_model, 
                     tfidf_vectorizer,
-                    use_train=use_train_for_eval
+                    use_train=use_train_for_eval,
+                    sample_size=sample_size
                 )
                 
                 if performance_data is None:
-                    st.error("No se pudo evaluar. Verifica los datos.")
+                    st.error("❌ No se pudo evaluar. Verifica los datos.")
                     st.stop()
                 
                 st.session_state["performance_data"] = performance_data
         else:
             performance_data = st.session_state["performance_data"]
         
-        st.success(" Evaluación completada!")
+        st.success("✅ Evaluación completada!")
         
         # Tabs para diferentes visualizaciones
         tab1, tab2, tab3 = st.tabs(["📊 Comparación General", "🎯 Métricas Detalladas", "📋 Tabla de Resultados"])
         
         with tab1:
             st.subheader("Comparación de Métricas")
-            
             # Gráfico de barras agrupadas
             fig = px.bar(
                 performance_data.melt(id_vars=["Model"], var_name="Métrica", value_name="Score"),
@@ -1032,7 +1094,7 @@ elif page == "📈 Rendimiento de Modelos":
                 color="Métrica",
                 barmode="group",
                 title="Comparación de Rendimiento entre Modelos",
-                text_auto='.3f',
+                text="Score",  # Changed from text_auto to text
                 color_discrete_map={
                     'Accuracy': COLORS['primary'],
                     'Precision': COLORS['secondary'],
@@ -1046,7 +1108,7 @@ elif page == "📈 Rendimiento de Modelos":
                 xaxis_title="Modelo",
                 legend_title="Métrica"
             )
-            fig.update_traces(texttemplate='%{text:.3f}', textposition='outside')
+            fig.update_traces(texttemplate='%{text:.3f}', textposition='outside')  # This will now work
             st.plotly_chart(fig, use_container_width=True)
             
             # Gráfico de radar
@@ -1085,7 +1147,7 @@ elif page == "📈 Rendimiento de Modelos":
             st.subheader("Métricas Individuales por Modelo")
             
             for idx, row in performance_data.iterrows():
-                with st.expander(f" {row['Model']}", expanded=True):
+                with st.expander(f"📊 {row['Model']}", expanded=True):
                     col1, col2, col3, col4 = st.columns(4)
                     
                     with col1:
@@ -1135,11 +1197,11 @@ elif page == "📈 Rendimiento de Modelos":
             best_model = performance_data.loc[best_model_idx, 'Model']
             best_f1 = performance_data.loc[best_model_idx, 'F1-Score']
             
-            st.success(f" **Mejor modelo según F1-Score**: **{best_model}** ({best_f1:.4f})")
+            st.success(f"🏆 **Mejor modelo según F1-Score**: **{best_model}** ({best_f1:.4f})")
             
             # Análisis adicional
             st.markdown("---")
-            st.subheader(" Análisis Estadístico")
+            st.subheader("📊 Análisis Estadístico")
             
             col1, col2 = st.columns(2)
             
@@ -1160,7 +1222,7 @@ elif page == "📈 Rendimiento de Modelos":
         
         st.markdown("""
         <div class="info-box">
-            <h4> Sobre las Métricas</h4>
+            <h4>ℹ️ Sobre las Métricas</h4>
             <ul>
                 <li><strong>Accuracy</strong>: Proporción de predicciones correctas sobre el total.</li>
                 <li><strong>Precision</strong>: De las predicciones positivas, cuántas fueron correctas.</li>
@@ -1176,7 +1238,7 @@ elif page == "📈 Rendimiento de Modelos":
 st.markdown("---")
 st.markdown(f"""
 <div style="text-align: center; color: {COLORS['text_secondary']}; padding: 2rem 0;">
-    <p style="font-weight: 600;"> Proyecto de Clasificación de Argumentos</p>
+    <p style="font-weight: 600;">📝 Proyecto de Clasificación de Argumentos</p>
     <p style="font-size: 0.9rem;">Desarrollado con Streamlit, PyTorch, y Transformers</p>
 </div>
 """, unsafe_allow_html=True)
