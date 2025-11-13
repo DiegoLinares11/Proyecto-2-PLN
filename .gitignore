@@ -1,2 +1,3 @@
 data/
 clean_*.csv
+__pycache__/
